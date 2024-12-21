@@ -1,0 +1,237 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Data</title>
+    <style>
+        body {
+            background-color: black;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        h3 {
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid white;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #333;
+        }
+        tr:nth-child(even) {
+            background-color: #444;
+        }
+        .status-dot {
+            height: 10px;
+            width: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .green {
+            background-color: green;
+        }
+        .red {
+            background-color: red;
+        }
+        .search-container {
+            display: flex;
+            align-items: center;
+            border-radius: 50px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .search-box {
+            border: none;
+            padding: 10px 20px;
+            outline: none;
+            width: 300px;
+            font-size: 16px;
+            border-radius: 50px 0 0 50px;
+        }
+        .search-box:autofill,
+        .search-box:autofill:hover, 
+        .search-box:autofill:focus, 
+        .search-box:autofill:active {
+            transition: background-color 5000s ease-in-out 0s;
+            background-color: black !important;
+            color: white !important;
+        }
+        .search-button {
+            border: none;
+            background-color: #56b159;
+            color: white;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            border-radius: 0 50px 50px 0;
+            transition: background-color 0.3s ease;
+        }
+        .search-button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="search-container">
+        <input type="text" id="searchBox" class="search-box" placeholder="Enter Asset Value or 'All'" autocomplete="off">
+        <button id="searchButton" class="search-button">Search</button>
+    </div>
+    <div id="Espdiv"></div>
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-app.js";
+        import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-database.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDOWnVIze7l8zO1KPq9lO-YHyKvX0007fM",
+    authDomain: "asset-tracking-system-55600.firebaseapp.com",
+    databaseURL: "https://asset-tracking-system-55600-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "asset-tracking-system-55600",
+    storageBucket: "asset-tracking-system-55600.appspot.com",
+    messagingSenderId: "956152279176",
+    appId: "1:956152279176:web:82169aa5961efe6f946f3d"
+  };
+
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        let Espdiv = document.getElementById('Espdiv');
+
+        const previousRSSI = {};
+        const storedData = {}; // Object to store data for each asset
+
+        function fetchAndDisplayData(filter = '') {
+            const dbref = ref(db);
+            const deviceData = {};
+
+            const addToDeviceData = (data, location, anchorName) => {
+                Object.keys(data).forEach(key => {
+                    const itemData = data[key];
+                    const deviceName = itemData.DeviceName || 'Unknown';
+                    const timestamp = new Date().toLocaleTimeString();
+                    const rssi = itemData.RSSI || 'Unknown';
+                    const macId = itemData.MAC || 'Unknown';
+
+                    if (!deviceData[macId]) {
+                        deviceData[macId] = [];
+                    }
+
+                    deviceData[macId].push({ deviceName, timestamp, anchorName: `${anchorName} (${location})`, rssi, macId });
+
+                    // Store data for each asset
+                    if (!storedData[macId]) {
+                        storedData[macId] = [];
+                    }
+                    storedData[macId].push({ deviceName, timestamp, anchorName: `${anchorName} (${location})`, rssi, macId });
+                });
+            };
+
+            const handleSnapshot = (snapshot, location, anchorName) => {
+                if (snapshot.exists()) {
+                    addToDeviceData(snapshot.val(), location, anchorName);
+                }
+
+                Object.keys(deviceData).forEach(macId => {
+                    deviceData[macId].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    deviceData[macId] = deviceData[macId].slice(0, 3);
+                });
+
+                Espdiv.innerHTML = '';
+
+                Object.keys(deviceData).forEach(macId => {
+                    if (filter === '' || filter.toLowerCase() === 'all' || deviceData[macId][0].deviceName.toLowerCase().includes(filter.toLowerCase())) {
+                        displayDeviceData(macId, deviceData[macId]);
+                    }
+                });
+
+                // Save stored data to local storage
+                localStorage.setItem('storedData', JSON.stringify(storedData));
+            };
+
+            onValue(ref(db, '3A_2A/'), snapshot => handleSnapshot(snapshot, '3A_2A', 'Anchor_1'));
+            onValue(ref(db, '3A_2D/'), snapshot => handleSnapshot(snapshot, '3A_2D', 'Anchor_2'));
+            onValue(ref(db, '3A-2G/'), snapshot => handleSnapshot(snapshot, '3A-2G', 'Anchor_3'));
+            onValue(ref(db, 'GATE-1/'), snapshot => handleSnapshot(snapshot, 'GATE-1', 'Anchor_4'));
+        }
+
+        function calculateDistance(rssi, rssi0 = -69, n = 2) {
+            return Math.pow(10, (rssi0 - rssi) / (10 * n));
+        }
+
+        function displayDeviceData(macId, data) {
+            const deviceHeading = document.createElement('h3');
+            deviceHeading.innerHTML = `Asset Value: ${data[0].deviceName} (MAC ID: ${data[0].macId})`;
+            Espdiv.appendChild(deviceHeading);
+
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const tbody = document.createElement('tbody');
+
+            thead.innerHTML = `
+                <tr>
+                    <th>Anchor</th>
+                    <th>Timestamp</th>
+                    <th>RSSI</th>
+                    <th>Approx. Distance (m)</th>
+                    <th>Status</th>
+                </tr>
+            `;
+
+            data.sort((a, b) => a.rssi - b.rssi);
+
+            data.forEach(item => {
+                const row = document.createElement('tr');
+                const distance = calculateDistance(item.rssi).toFixed(2);
+                const statusClass = isRecent(item.rssi, item.macId) ? 'green' : 'red';
+
+                row.innerHTML = `
+                    <td>${item.anchorName}</td>
+                    <td>${item.timestamp}</td>
+                    <td>${item.rssi}</td>
+                    <td>${distance}</td>
+                    <td><span class="status-dot ${statusClass}"></span></td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            table.appendChild(thead);
+            table.appendChild(tbody);
+            Espdiv.appendChild(table);
+        }
+
+        function isRecent(rssi, macId) {
+            if (!previousRSSI[macId]) {
+                previousRSSI[macId] = rssi;
+                return true;
+            }
+            const isChanging = previousRSSI[macId] !== rssi;
+            previousRSSI[macId] = rssi;
+            return isChanging;
+        }
+
+        document.getElementById('searchButton').addEventListener('click', () => {
+            const searchValue = document.getElementById('searchBox').value.trim();
+            fetchAndDisplayData(searchValue);
+        });
+
+        setInterval(() => {
+            const searchValue = document.getElementById('searchBox').value.trim();
+            fetchAndDisplayData(searchValue);
+        }, 3000);
+
+        fetchAndDisplayData();
+    </script>
+</body>
+</html>
